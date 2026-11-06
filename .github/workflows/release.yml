@@ -161,6 +161,8 @@ jobs:
       - name: Verify installation and publish cask
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
+          JJ_USER: "github-actions[bot]"
+          JJ_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
         run: |
           set -euo pipefail
           export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/tap_known_hosts"
@@ -181,8 +183,6 @@ jobs:
           PY
           cd "$tap_path"
           jj git init --colocate
-          jj config set --repo user.name '"github-actions[bot]"'
-          jj config set --repo user.email '"41898282+github-actions[bot]@users.noreply.github.com"'
           jj git remote set-url origin git@github.com:ryanwersal/homebrew-tools.git
           cp "$artifact" Casks/shortcut-cli.rb
           ruby -c Casks/shortcut-cli.rb
