@@ -213,8 +213,16 @@ checks `sc`, and commits the cask to `ryanwersal/homebrew-tools` using jj.
 The `release` environment's `HOMEBREW_TAP_SSH_KEY` secret holds a dedicated deploy
 key with write access only to the tap. It does not require a personal access token.
 Published assets are never overwritten. If the tap update fails after publication,
-rerun only the failed jobs; the already-published release remains available. Older
-releases cannot downgrade the tap.
+rerun only the failed jobs. After correcting the workflow itself, recover from the
+published archives using the current workflow on `main`:
+
+```sh
+gh workflow run release.yml --ref main -f tag=v0.1.0
+```
+
+Recovery verifies the published checksums, installs and audits the cask, and updates
+the tap. The existing release assets remain unchanged. Older releases cannot
+downgrade the tap.
 
 ## License
 

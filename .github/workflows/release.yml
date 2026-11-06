@@ -3,6 +3,12 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published release tag to install, audit, and publish to the tap"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,6 +19,7 @@ concurrency:
 
 jobs:
   verify:
+    if: github.event_name == 'push'
     name: Verify release candidate
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -105,6 +112,7 @@ jobs:
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
 
   update-tap:
+    if: always() && (needs.publish.result == 'success' || github.event_name == 'workflow_dispatch')
     name: Install, audit, and update Homebrew tap
     needs: publish
     runs-on: macos-latest
@@ -122,9 +130,25 @@ jobs:
           cache: true
           install_args: jj
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: github.event_name == 'push'
         with:
           name: release-assets
           path: dist
+      - name: Recover cask from published release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(python3 scripts/release.py validate-tag --tag "$TAG")"
+          draft="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          [[ "$draft" == "false" ]] || { echo "Recovery requires a published release" >&2; exit 1; }
+          mkdir -p dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist \
+            --pattern "sc_${version}_darwin_amd64.tar.gz" \
+            --pattern "sc_${version}_darwin_arm64.tar.gz" --pattern checksums.txt
+          python3 scripts/release.py cask --tag "$TAG"
       - name: Configure tap-only SSH identity
         env:
           TAP_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
@@ -136,7 +160,7 @@ jobs:
           gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$RUNNER_TEMP/tap_known_hosts"
       - name: Verify installation and publish cask
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/tap_known_hosts"
@@ -157,8 +181,8 @@ jobs:
           PY
           cd "$tap_path"
           jj git init --colocate
-          jj config set --repo user.name 'github-actions[bot]'
-          jj config set --repo user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          jj config set --repo user.name '"github-actions[bot]"'
+          jj config set --repo user.email '"41898282+github-actions[bot]@users.noreply.github.com"'
           jj git remote set-url origin git@github.com:ryanwersal/homebrew-tools.git
           cp "$artifact" Casks/shortcut-cli.rb
           ruby -c Casks/shortcut-cli.rb

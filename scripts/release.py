@@ -82,12 +82,40 @@ def package(version, dist):
     (dist / "shortcut-cli.rb").write_text(render_cask(version, checksums))
 
 
+def recover_cask(version, dist):
+    """Render a cask only after verifying the existing public archive digests."""
+    validate_version(version)
+    manifest = {}
+    for line in (dist / "checksums.txt").read_text().splitlines():
+        digest, name = line.split()
+        if name in manifest:
+            raise ValueError("duplicate checksum entry")
+        manifest[name] = digest
+    checksums = {}
+    for arch in ("amd64", "arm64"):
+        name = f"sc_{version}_darwin_{arch}.tar.gz"
+        digest = hashlib.sha256((dist / name).read_bytes()).hexdigest()
+        if manifest.get(name) != digest:
+            raise ValueError(f"checksum mismatch for {name}")
+        checksums[arch] = digest
+    (dist / "shortcut-cli.rb").write_text(render_cask(version, checksums))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("validate", "package"))
+    parser.add_argument("command", choices=("validate", "validate-tag", "package", "cask"))
     parser.add_argument("--tag")
     parser.add_argument("--dist", type=Path, default=ROOT / "dist")
     args = parser.parse_args()
+    if args.command in ("validate-tag", "cask"):
+        if args.tag is None or not args.tag.startswith("v"):
+            parser.error("a stable vX.Y.Z tag is required")
+        version = validate_version(args.tag[1:])
+        if args.command == "cask":
+            recover_cask(version, args.dist)
+        else:
+            print(version)
+        return
     version = validate_version((ROOT / "VERSION").read_text().strip())
     if args.tag is not None and args.tag != "v" + version:
         parser.error(f"tag must match VERSION (v{version})")

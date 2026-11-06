@@ -36,6 +36,11 @@ class ReleaseTests(unittest.TestCase):
                     self.assertEqual(archive.getnames(), list(release.FILES))
                     self.assertEqual(archive.getmember("sc").mode, 0o755)
                     self.assertTrue(all(m.uid == 0 and m.mtime == 0 for m in archive.getmembers()))
+            release.recover_cask("0.1.0", dist)
+            self.assertEqual((dist / "shortcut-cli.rb").read_text(), cask)
+            (dist / "sc_0.1.0_darwin_arm64.tar.gz").write_bytes(b"tampered")
+            with self.assertRaises(ValueError):
+                release.recover_cask("0.1.0", dist)
             self.assertIn('binary "sc"', cask)
             self.assertIn('args: ["-d", "com.apple.quarantine", "sc"]', cask)
             self.assertIn('depends_on macos: :ventura', cask)
