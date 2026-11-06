@@ -1,0 +1,20 @@
+[tools]
+go = "1.27.3"
+
+[tasks.check]
+depends = ["lint", "test"]
+
+[tasks.lint]
+run = ["go run ./scripts/checkfmt.go", "go vet ./..."]
+
+[tasks.test]
+run = "go test -race ./..."
+
+[tasks.coverage]
+run = ["go test -race -coverprofile=coverage.out ./...", "go tool cover -func=coverage.out"]
+
+[tasks.build]
+run = "go build -trimpath -ldflags='-s -w' -o bin/ ./cmd/sc"
+
+[tasks.audit]
+run = "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./..."
