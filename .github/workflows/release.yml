@@ -1,0 +1,178 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shortcut-cli-release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify release candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925 # v4.1.0
+        with:
+          cache: true
+      - name: Validate version, ancestry, and tap configuration
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+          TAP_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release.py validate --tag "$TAG"
+          status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main" --jq .status)"
+          [[ "$status" == "ahead" || "$status" == "identical" ]] || { echo "Release commit must be on main" >&2; exit 1; }
+          [[ -n "$TAP_KEY" ]] || { echo "Configure HOMEBREW_TAP_SSH_KEY in the release environment" >&2; exit 1; }
+      - run: mise run check
+      - run: mise run release-test
+      - run: mise run audit
+
+  build:
+    name: Build macOS archives
+    needs: verify
+    runs-on: macos-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925 # v4.1.0
+        with:
+          cache: true
+          install_args: go
+      - name: Package and smoke test sc
+        env:
+          TAG: ${{ github.ref_name }}
+        run: bash scripts/package-release.sh "$TAG"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-assets
+          path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+            dist/shortcut-cli.rb
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-assets
+          path: dist
+      - name: Publish verified archives
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum -c checksums.txt)
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            draft="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+            [[ "$draft" == "true" ]] || { echo "Refusing to overwrite a published release; rerun only failed jobs" >&2; exit 1; }
+            gh release upload "$TAG" dist/*.tar.gz dist/checksums.txt --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" dist/*.tar.gz dist/checksums.txt --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --title "sc $TAG" --generate-notes --draft
+          fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+
+  update-tap:
+    name: Install, audit, and update Homebrew tap
+    needs: publish
+    runs-on: macos-latest
+    timeout-minutes: 15
+    environment: release
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925 # v4.1.0
+        with:
+          cache: true
+          install_args: jj
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-assets
+          path: dist
+      - name: Configure tap-only SSH identity
+        env:
+          TAP_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$TAP_KEY" > "$RUNNER_TEMP/tap_key"
+          gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$RUNNER_TEMP/tap_known_hosts"
+      - name: Verify installation and publish cask
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/tap_known_hosts"
+          version="${TAG#v}"
+          artifact="$PWD/dist/shortcut-cli.rb"
+          brew tap ryanwersal/tools
+          tap_path="$(brew --repo ryanwersal/tools)"
+          python3 - "$tap_path/Casks/shortcut-cli.rb" "$version" <<'PY'
+          from pathlib import Path
+          import re, sys
+          cask = Path(sys.argv[1])
+          if cask.exists():
+              match = re.search(r'version "([0-9.]+)"', cask.read_text())
+              if not match:
+                  raise SystemExit("Cannot determine existing cask version")
+              if tuple(map(int, match[1].split('.'))) > tuple(map(int, sys.argv[2].split('.'))):
+                  raise SystemExit("Refusing to downgrade the tap")
+          PY
+          cd "$tap_path"
+          jj git init --colocate
+          jj config set --repo user.name 'github-actions[bot]'
+          jj config set --repo user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          jj git remote set-url origin git@github.com:ryanwersal/homebrew-tools.git
+          cp "$artifact" Casks/shortcut-cli.rb
+          ruby -c Casks/shortcut-cli.rb
+          brew audit --cask --strict ryanwersal/tools/shortcut-cli
+          brew install --cask ryanwersal/tools/shortcut-cli
+          [[ "$(sc --version)" == "sc version $version" ]]
+          sc agent schema > "$RUNNER_TEMP/sc-schema.json"
+          if [[ -z "$(jj diff --summary)" ]]; then
+            echo "Tap is already current"
+            exit 0
+          fi
+          jj commit Casks/shortcut-cli.rb -m "Update shortcut-cli to $TAG"
+          jj bookmark set main -r @-
+          jj git push --remote origin --bookmark main
+      - name: Remove SSH identity
+        if: always()
+        run: rm -f "$RUNNER_TEMP/tap_key" "$RUNNER_TEMP/tap_known_hosts"

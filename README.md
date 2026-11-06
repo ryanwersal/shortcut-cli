@@ -7,6 +7,17 @@ local agent discovery, bounded requests, and mise development tasks.
 All **143 operations** in the pinned Shortcut REST v3 OpenAPI contract are available.
 Commands are separated into `read` and `write` namespaces. The CLI never prompts.
 
+## Install with Homebrew
+
+```sh
+brew install --cask ryanwersal/tools/shortcut-cli
+sc --version
+```
+
+The cask installs `sc` and Bash, Zsh, and Fish completions on Apple Silicon and
+Intel Macs running macOS 13 (Ventura) or later. The package is named `shortcut-cli`
+to distinguish it from other tools named `sc`.
+
 ## Build and configure
 
 ```sh
@@ -174,3 +185,33 @@ converts OpenAPI `nullable` to JSON Schema and adds the documented exactly-one-o
 GitHub Actions checks Linux, macOS, and Windows, uploads coverage, and runs a
 separate vulnerability scan. Dependabot checks Go dependencies and action pins.
 Tests use local HTTP fixtures and never need a Shortcut token or modify a workspace.
+
+## Releases
+
+The release workflow follows wand's macOS archive and Homebrew cask distribution.
+`VERSION` is the source of truth for published versions; development builds report
+`dev`. Release builds embed the version in both `sc --version` and `agent schema`.
+
+To publish a new stable version:
+
+1. Update `VERSION` and commit the change with jj.
+2. Push `main` and wait for CI to pass.
+3. From an empty working-copy change directly above synchronized `main`, run
+   `mise run release`. This runs checks, creates the matching `vX.Y.Z` tag, and
+   pushes it with jj.
+
+GitHub Actions verifies the tag/version and main ancestry, tests and audits the
+code, builds both macOS architectures, and publishes archives with SHA-256
+checksums and build provenance. Each archive includes the license and shell
+completions. The workflow then audits the cask, installs the actual public release,
+checks `sc`, and commits the cask to `ryanwersal/homebrew-tools` using jj.
+
+The `release` environment's `HOMEBREW_TAP_SSH_KEY` secret holds a dedicated deploy
+key with write access only to the tap. It does not require a personal access token.
+Published assets are never overwritten. If the tap update fails after publication,
+rerun only the failed jobs; the already-published release remains available. Older
+releases cannot downgrade the tap.
+
+## License
+
+[Apache-2.0](LICENSE), matching wand.

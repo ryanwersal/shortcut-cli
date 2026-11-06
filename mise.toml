@@ -1,5 +1,6 @@
 [tools]
 go = "1.27.3"
+jj = "0.47.1"
 
 [tasks.check]
 depends = ["lint", "test"]
@@ -18,3 +19,11 @@ run = 'go build -trimpath -ldflags="-s -w" -o bin/ ./cmd/sc'
 
 [tasks.audit]
 run = "go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./..."
+
+[tasks.release-test]
+run = "python3 -m unittest discover -s scripts -p test_release.py"
+
+[tasks.release]
+description = "Tag and publish the committed VERSION from synchronized main"
+depends = ["check", "audit", "release-test"]
+run = "bash scripts/tag-release.sh"
