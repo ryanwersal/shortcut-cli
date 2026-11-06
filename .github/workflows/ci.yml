@@ -88,7 +88,8 @@ jobs:
         run: bash scripts/package-release.sh "v$(cat VERSION)"
       - name: Audit generated cask
         run: |
-          mkdir -p dist/Casks
-          cp dist/shortcut-cli.rb dist/Casks/shortcut-cli.rb
-          brew style "$PWD/dist/Casks/shortcut-cli.rb"
-          brew audit --cask --strict "$PWD/dist/Casks/shortcut-cli.rb"
+          brew tap ryanwersal/tools
+          tap_path="$(brew --repo ryanwersal/tools)"
+          cp dist/shortcut-cli.rb "$tap_path/Casks/shortcut-cli.rb"
+          brew style "$tap_path/Casks/shortcut-cli.rb"
+          brew audit --cask --strict ryanwersal/tools/shortcut-cli
