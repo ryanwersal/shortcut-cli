@@ -183,6 +183,7 @@ jobs:
           PY
           cd "$tap_path"
           jj git init --colocate
+          jj bookmark track main@origin
           jj git remote set-url origin git@github.com:ryanwersal/homebrew-tools.git
           cp "$artifact" Casks/shortcut-cli.rb
           ruby -c Casks/shortcut-cli.rb
