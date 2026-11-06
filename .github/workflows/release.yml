@@ -162,6 +162,7 @@ jobs:
           jj git remote set-url origin git@github.com:ryanwersal/homebrew-tools.git
           cp "$artifact" Casks/shortcut-cli.rb
           ruby -c Casks/shortcut-cli.rb
+          brew trust --cask ryanwersal/tools/shortcut-cli
           brew audit --cask --strict ryanwersal/tools/shortcut-cli
           brew install --cask ryanwersal/tools/shortcut-cli
           [[ "$(sc --version)" == "sc version $version" ]]

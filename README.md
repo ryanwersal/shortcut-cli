@@ -10,13 +10,17 @@ Commands are separated into `read` and `write` namespaces. The CLI never prompts
 ## Install with Homebrew
 
 ```sh
+brew tap ryanwersal/tools
+brew trust --cask ryanwersal/tools/shortcut-cli
 brew install --cask ryanwersal/tools/shortcut-cli
 sc --version
 ```
 
 The cask installs `sc` and Bash, Zsh, and Fish completions on Apple Silicon and
 Intel Macs running macOS 13 (Ventura) or later. The package is named `shortcut-cli`
-to distinguish it from other tools named `sc`.
+to distinguish it from other tools named `sc`. Like crucible's cask, its postflight
+step removes quarantine from the installed executable only. Release binaries have
+ad-hoc signatures and are not Apple-notarized.
 
 ## Build and configure
 

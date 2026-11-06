@@ -60,6 +60,12 @@ cask "shortcut-cli" do
   bash_completion "sc.bash"
   zsh_completion "_sc"
   fish_completion "sc.fish"
+
+  postflight_steps do
+    on_macos do
+      run "/usr/bin/xattr", args: ["-d", "com.apple.quarantine", "sc"], chdir: ".", must_succeed: false
+    end
+  end
 end
 '''
 
