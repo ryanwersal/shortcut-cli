@@ -54,7 +54,7 @@ cask "shortcut-cli" do
     strategy :github_latest
   end
 
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   binary "sc"
   bash_completion "sc.bash"
